@@ -1,366 +1,213 @@
-รถ
-/*
-   Vehicle Robot (Receiver) - ESP32 Version
-   Power: ESP32 Powered by 5V pin (from L298N)
-*/
+คุม
 #include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
 
-// --- ตั้งค่า NRF24L01 สำหรับ ESP32 ---
-// CE = GPIO 4, CSN = GPIO 5
-RF24 radio(4, 5); 
-const byte address[6] = "00001";
+// ขา NRF24L01 สำหรับ ESP32
+#define CE_PIN   4
+#define CSN_PIN  5
 
-// --- ตั้งค่าขา Motor Driver (L298N) ---
-// ENA=13, IN1=12, IN2=14
-// IN3=27, IN4=26, ENB=25
-const int ENA = 13; 
-const int IN1 = 12;
-const int IN2 = 14;
-const int IN3 = 27;
-const int IN4 = 26;
-const int ENB = 25; 
+// ขา Ultrasonic
+#define TRIG_PIN 13
+#define ECHO_PIN 12
 
-// ความเร็ว (ESP32 PWM ใช้ 0-255 ได้ผ่าน analogWrite ใน Arduino core รุ่นใหม่)
-const int MOTOR_SPEED = 200; 
+// ขา Motor หุ่นคุม (L298N)
+#define MOTOR_IN1 26
+#define MOTOR_IN2 27
+
+// ขาปุ่มกด
+#define BTN_K1 32 // หมุนมอเตอร์ไปข้างหน้า
+#define BTN_K2 33 // (ไม่ได้ใช้ในเงื่อนไขนี้)
+#define BTN_K3 25 // ส่งค่าระยะ
+#define BTN_K4 14 // หมุนมอเตอร์ไปข้างหลัง
+
+RF24 radio(CE_PIN, CSN_PIN);
+const byte address[6] = "00001"; // Address ต้องตรงกันทั้ง 2 ฝั่ง
 
 void setup() {
-  Serial.begin(115200); // ESP32 นิยมใช้ 115200
-  Serial.println("ESP32 Car Starting...");
+  Serial.begin(115200);
 
-  // Setup Motors
-  pinMode(ENA, OUTPUT); pinMode(ENB, OUTPUT);
-  pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
-  pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
-  
-  stopMotors();
+  // Setup Motor
+  pinMode(MOTOR_IN1, OUTPUT);
+  pinMode(MOTOR_IN2, OUTPUT);
+  digitalWrite(MOTOR_IN1, LOW);
+  digitalWrite(MOTOR_IN2, LOW);
+
+  // Setup Buttons
+  pinMode(BTN_K1, INPUT_PULLUP);
+  pinMode(BTN_K2, INPUT_PULLUP);
+  pinMode(BTN_K3, INPUT_PULLUP);
+  pinMode(BTN_K4, INPUT_PULLUP);
+
+  // Setup Ultrasonic
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
 
   // Setup Radio
-  // ESP32 ใช้ VSPI อัตโนมัติ (SCK=18, MISO=19, MOSI=23)
   if (!radio.begin()) {
-    Serial.println("NRF24 Hardware Error!");
-    while(1);
+    Serial.println("NRF24 Hardware not responding!");
+    // while (1) {} // เอาออกเพื่อให้โค้ดยังทำงานส่วนอื่นได้แม้ NRF มีปัญหา
+  }
+  radio.openWritingPipe(address);
+  radio.setPALevel(RF24_PA_MIN);
+  radio.stopListening();
+}
+
+void loop() {
+  // --- ส่วนควบคุมมอเตอร์หุ่นคุม (Manual Control) ---
+  if (digitalRead(BTN_K1) == LOW) {
+    // กด K1 หมุนไปข้างหน้า
+    digitalWrite(MOTOR_IN1, HIGH);
+    digitalWrite(MOTOR_IN2, LOW);
+  } 
+  else if (digitalRead(BTN_K4) == LOW) {
+    // กด K4 หมุนไปข้างหลัง
+    digitalWrite(MOTOR_IN1, LOW);
+    digitalWrite(MOTOR_IN2, HIGH);
+  } 
+  else {
+    // ไม่กด ให้หยุด
+    digitalWrite(MOTOR_IN1, LOW);
+    digitalWrite(MOTOR_IN2, LOW);
+  }
+
+  // --- ส่วนวัดระยะทาง (วัดตลอดเวลา) ---
+  float currentDistance = getDistance();
+  
+  // --- ส่วนส่งค่า (ส่งเมื่อกด K3) ---
+  if (digitalRead(BTN_K3) == LOW) {
+    Serial.print("Sending Distance: ");
+    Serial.println(currentDistance);
+    
+    bool report = radio.write(&currentDistance, sizeof(currentDistance));
+    
+    if (report) {
+      Serial.println("Sent successfully");
+    } else {
+      Serial.println("Send failed");
+    }
+    
+    delay(200); // ดีเลย์ป้องกันการส่งรัวเกินไปขณะกดแช่
+  }
+
+  delay(50); // Loop delay เล็กน้อย
+}
+
+float getDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  
+  long duration = pulseIn(ECHO_PIN, HIGH);
+  // คำนวณเป็น cm
+  return duration * 0.034 / 2;
+}
+
+รถ
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+
+// ขา NRF24L01 สำหรับ Nano
+#define CE_PIN   7 
+#define CSN_PIN  8
+
+// ขา Motor Driver (L298N)
+// สมมติ: IN1/2 คือล้อซ้าย, IN3/4 คือล้อขวา
+#define IN1 2 // ซ้ายเดินหน้า
+#define IN2 3 // ซ้ายถอยหลัง
+#define IN3 4 // ขวาเดินหน้า
+#define IN4 5 // ขวาถอยหลัง
+
+RF24 radio(CE_PIN, CSN_PIN);
+const byte address[6] = "00001";
+
+float receivedDistance = 0.0;
+unsigned long lastReceiveTime = 0;
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  stopCar();
+
+  if (!radio.begin()) {
+    Serial.println("NRF24 Hardware not responding!");
   }
   radio.openReadingPipe(0, address);
-  radio.setPALevel(RF24_PA_MAX);
-  radio.startListening();
-  
-  Serial.println("Waiting for command...");
+  radio.setPALevel(RF24_PA_MIN);
+  radio.startListening(); // เป็นตัวรับ
 }
 
 void loop() {
   if (radio.available()) {
-    float distance = 0.0;
-    radio.read(&distance, sizeof(float));
+    radio.read(&receivedDistance, sizeof(receivedDistance));
+    lastReceiveTime = millis();
+    Serial.print("Recv: "); Serial.println(receivedDistance);
     
-    Serial.print("Received: "); Serial.println(distance);
-    
-    // --- เงื่อนไขเดิม ---
-    
-    // 1. เลี้ยวซ้าย (4.5 - 5.5)
-    if (distance >= 4.5 && distance <= 5.5) {
-      Serial.println("Action: Turn Left");
-      moveLeft();
-      delay(1000); 
-      stopMotors();
-    }
-    // 2. เดินหน้า (9.5 - 10.5)
-    else if (distance >= 9.5 && distance <= 10.5) {
-      Serial.println("Action: Forward");
-      moveForward();
-      delay(1000);
-      stopMotors();
-    }
-    // 3. ถอยหลัง (14.5 - 15.5)
-    else if (distance >= 14.5 && distance <= 15.5) {
-      Serial.println("Action: Backward");
-      moveBackward();
-      delay(1000);
-      stopMotors();
-    }
-    // 4. เลี้ยวขวา (19.5 - 20.5)
-    else if (distance >= 19.5 && distance <= 20.5) {
-      Serial.println("Action: Turn Right");
-      moveRight();
-      delay(1000);
-      stopMotors();
-    }
-    else {
-      stopMotors();
-    }
+    controlCar(receivedDistance);
+  }
+
+  // Safety: ถ้าไม่ได้รับค่าเกิน 1 วินาที ให้หยุดรถ
+  if (millis() - lastReceiveTime > 1000) {
+    stopCar();
   }
 }
 
+void controlCar(float dist) {
+  // เงื่อนไข 1: 3.5cm - 6.5cm -> ล้อขวาหมุนไปข้างหน้า
+  if (dist >= 3.5 && dist <= 6.5) {
+    rightForwardOnly(); 
+  }
+  // เงื่อนไข 2: 8.5cm - 11.5cm -> ล้อทั้งคู่หมุนไปข้างหน้า
+  else if (dist >= 8.5 && dist <= 11.5) {
+    moveForward();
+  }
+  // เงื่อนไข 3: 13.5cm - 16.5cm -> ล้อทั้งคู่หมุนไปข้างหลัง
+  else if (dist >= 13.5 && dist <= 16.5) {
+    moveBackward();
+  }
+  // เงื่อนไข 4: 18.5cm - 21.5cm -> ล้อซ้ายหมุนไปข้างหน้า
+  else if (dist >= 18.5 && dist <= 21.5) {
+    leftForwardOnly();
+  }
+  // นอกเหนือเงื่อนไข -> หยุด
+  else {
+    stopCar();
+  }
+}
+
+// ฟังก์ชันควบคุมมอเตอร์
 void moveForward() {
-  analogWrite(ENA, MOTOR_SPEED);
+  // ซ้ายเดินหน้า, ขวาเดินหน้า
   digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
-  analogWrite(ENB, MOTOR_SPEED);
   digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
 }
 
 void moveBackward() {
-  analogWrite(ENA, MOTOR_SPEED);
+  // ซ้ายถอย, ขวาถอย
   digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
-  analogWrite(ENB, MOTOR_SPEED);
   digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
 }
 
-void moveLeft() {
-  analogWrite(ENA, 0);
+void rightForwardOnly() {
+  // ซ้ายหยุด, ขวาเดินหน้า
   digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
-  analogWrite(ENB, MOTOR_SPEED);
   digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
 }
 
-void moveRight() {
-  analogWrite(ENA, MOTOR_SPEED);
+void leftForwardOnly() {
+  // ซ้ายเดินหน้า, ขวาหยุด
   digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
-  analogWrite(ENB, 0);
   digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
 }
 
-void stopMotors() {
-  digitalWrite(ENA, LOW); digitalWrite(ENB, LOW);
+void stopCar() {
   digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
   digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
-}
-
-
-คุม
-/*
-
- * Controller Robot (Sender)
-
- * ระบบ: UNO + NRF24 + HC-SR04 + Motor Turret + 4 Buttons
-
- */
-
-#include <SPI.h>
-
-#include <nRF24L01.h>
-
-#include <RF24.h>
-
-
-
-// --- ตั้งค่า NRF24L01 ---
-
-RF24 radio(9, 10); // CE, CSN
-
-const byte address[6] = "00001";
-
-
-
-// --- ตั้งค่าขามอเตอร์ฐาน ---
-
-const int TURRET_IN1 = 2;
-
-const int TURRET_IN2 = 3;
-
-
-
-// --- ตั้งค่าขา Sensor วัดระยะ ---
-
-const int TRIG_PIN = 6;
-
-const int ECHO_PIN = 7;
-
-
-
-// --- ตั้งค่าขาปุ่มกด (Analog Pins ใช้เป็น Digital Input) ---
-
-const int BTN_LEFT  = A0; // K1 หมุนซ้าย
-
-const int BTN_SEND  = A1; // K2 วัดระยะและส่งค่า
-
-const int BTN_RESET = A2; // K3 (เผื่อไว้)
-
-const int BTN_RIGHT = A3; // K4 หมุนขวา
-
-
-
-void setup() {
-
-  Serial.begin(9600);
-
-  
-
-  // Setup Motor
-
-  pinMode(TURRET_IN1, OUTPUT);
-
-  pinMode(TURRET_IN2, OUTPUT);
-
-  
-
-  // Setup HC-SR04
-
-  pinMode(TRIG_PIN, OUTPUT);
-
-  pinMode(ECHO_PIN, INPUT);
-
-  
-
-  // Setup Buttons (INPUT_PULLUP: กด=LOW, ไม่กด=HIGH)
-
-  pinMode(BTN_LEFT, INPUT_PULLUP);
-
-  pinMode(BTN_SEND, INPUT_PULLUP);
-
-  pinMode(BTN_RESET, INPUT_PULLUP);
-
-  pinMode(BTN_RIGHT, INPUT_PULLUP);
-
-  
-
-  // Setup Radio
-
-  if (!radio.begin()) {
-
-    Serial.println("NRF24 Hardware Error!");
-
-    while(1); // ค้างไว้ถ้า NRF เสีย
-
-  }
-
-  radio.openWritingPipe(address);
-
-  radio.setPALevel(RF24_PA_MAX);
-
-  radio.stopListening(); // โหมดส่ง
-
-  
-
-  Serial.println("Controller Ready...");
-
-}
-
-
-
-void loop() {
-
-  // 1. ควบคุมการหมุน (กดแช่เพื่อหมุน)
-
-  if (digitalRead(BTN_LEFT) == LOW) {
-
-    digitalWrite(TURRET_IN1, HIGH);
-
-    digitalWrite(TURRET_IN2, LOW);
-
-  } 
-
-  else if (digitalRead(BTN_RIGHT) == LOW) {
-
-    digitalWrite(TURRET_IN1, LOW);
-
-    digitalWrite(TURRET_IN2, HIGH);
-
-  } 
-
-  else {
-
-    digitalWrite(TURRET_IN1, LOW);
-
-    digitalWrite(TURRET_IN2, LOW);
-
-  }
-
-
-
-  // 2. กดปุ่ม K2 เพื่อวัดระยะและส่ง
-
-  if (digitalRead(BTN_SEND) == LOW) {
-
-    // วัดระยะ
-
-    float distance = getDistance();
-
-    
-
-    Serial.print("Sending Distance: ");
-
-    Serial.print(distance);
-
-    Serial.println(" cm");
-
-    
-
-    // ส่งข้อมูล
-
-    bool report = radio.write(&distance, sizeof(float));
-
-    
-
-    if (report) Serial.println("-> Send OK");
-
-    else Serial.println("-> Send Fail");
-
-    
-
-    delay(500); // ดีเลย์ป้องกันกดรัว
-
-  }
-
-}
-
-
-
-float getDistance() {
-
-  digitalWrite(TRIG_PIN, LOW); delayMicroseconds(2);
-
-  digitalWrite(TRIG_PIN, HIGH); delayMicroseconds(10);
-
-  digitalWrite(TRIG_PIN, LOW);
-
-  long duration = pulseIn(ECHO_PIN, HIGH);
-
-  return duration * 0.034 / 2;
-
-}
-
-
-
-
-เทสSensor
-/*
- * HC-SR04 Test Code
- * สำหรับทดสอบ Sensor วัดระยะ บนตัวคุม
- */
-
-const int trigPin = 6; // ขา Trig
-const int echoPin = 7; // ขา Echo
-
-void setup() {
-  Serial.begin(9600); // เปิด Serial Monitor ที่ความเร็ว 9600
-  
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
-  
-  Serial.println("--- Start Sensor Test ---");
-}
-
-void loop() {
-  // 1. เคลียร์ขา Trig ให้เป็น LOW ก่อน
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-
-  // 2. ยิงคลื่นเสียงออกไป (HIGH 10 ไมโครวินาที)
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-
-  // 3. รอรับเสียงสะท้อนกลับ
-  long duration = pulseIn(echoPin, HIGH);
-
-  // 4. คำนวณระยะทาง (Sound speed = 0.034 cm/us)
-  float distance = duration * 0.034 / 2;
-
-  // 5. แสดงผลออกหน้าจอ
-  Serial.print("Distance: ");
-  Serial.print(distance);
-  Serial.println(" cm");
-
-  delay(500); // หน่วงเวลา 0.5 วินาที เพื่อให้อ่านทัน
 }
